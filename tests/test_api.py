@@ -101,6 +101,20 @@ def test_generate_review_and_send_flow(client):
     r = client.post(f"/api/applications/{app_id}/send", json={})
     assert r.status_code == 409
 
+    # download exports (PDF + DOCX) for both documents
+    pdf = client.get(f"/api/applications/{app_id}/resume.pdf")
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content[:4] == b"%PDF"
+
+    docx = client.get(f"/api/applications/{app_id}/cover_letter.docx")
+    assert docx.status_code == 200
+    assert docx.content[:2] == b"PK"
+
+    # unknown document / format are rejected
+    assert client.get(f"/api/applications/{app_id}/resume.txt").status_code == 404
+    assert client.get(f"/api/applications/{app_id}/foo.pdf").status_code == 404
+
     # approve then send (dry-run writes to outbox)
     client.put(f"/api/applications/{app_id}", json={"status": "approved"})
     r = client.post(f"/api/applications/{app_id}/send", json={})

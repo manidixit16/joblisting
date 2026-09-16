@@ -22,6 +22,8 @@ Find **fresh (≤24h) job listings** from legal job-board APIs, generate a
   - `claude` — Anthropic Claude API for human-sounding, ATS-friendly writing.
   - `auto` — uses Claude if a key is present, otherwise falls back to template.
 - ✅ **Review workflow** — edit the drafts, approve, then send.
+- 📄 **PDF & DOCX export** — download ATS-friendly (single-column, selectable
+  text) resumes and cover letters from the review screen.
 - 📧 **Safe sending** — SMTP email that defaults to **dry-run** (writes `.eml`
   files to `./outbox/` so you can verify before going live).
 - 🖥 **Simple web UI** at `/` for the whole loop: search → generate → review → send.
@@ -62,7 +64,8 @@ All settings live in `.env` (see `.env.example`). Highlights:
 pytest -q
 ```
 
-Tests run fully offline (sources are mocked; email is dry-run).
+Tests run fully offline (sources are mocked; email is dry-run). CI
+(`.github/workflows/ci.yml`) runs the same suite on every push/PR to `main`.
 
 ## Architecture
 
@@ -79,6 +82,7 @@ app/
     aggregator.py      freshness filter, keyword match, dedup, persistence
     generator/         pluggable resume/cover generation
       template.py claude.py factory.py
+    export.py          ATS-friendly PDF + DOCX rendering
     sender.py          approval-gated, dry-run-safe email
   static/index.html    single-page review UI
 tests/                 aggregator, generator, and end-to-end API tests
@@ -113,7 +117,6 @@ field, so a future compliant source can populate it.
 - Auto-fill of web application **forms** (currently email-only; forms vary too
   much per site to do safely without per-site adapters + your review).
 - Scheduled background refresh + notifications for new matches.
-- PDF/DOCX export of resumes and cover letters.
 - Per-search saved profiles and multiple resume variants.
 
 ---
