@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from .schemas import (
     SendRequest,
 )
 from .services import aggregator
+from .services.export import to_docx, to_pdf
 from .services.generator import JobData, ProfileData, get_generator
 from .services.sender import send_application
 from .sources import SearchQuery, all_source_names
@@ -228,6 +229,48 @@ def update_application(
             raise HTTPException(400, f"Invalid status: {payload.status}")
     session.commit()
     return application
+
+
+_DOC_FIELDS = {"resume": "resume", "cover_letter": "cover_letter"}
+_MIME = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+@app.get("/api/applications/{app_id}/{doc}.{fmt}")
+def download_document(
+    app_id: int,
+    doc: str,
+    fmt: str,
+    session: Session = Depends(get_session),
+) -> Response:
+    """Download a generated document as PDF or DOCX.
+
+    doc: 'resume' | 'cover_letter'   fmt: 'pdf' | 'docx'
+    """
+    if doc not in _DOC_FIELDS:
+        raise HTTPException(404, "Unknown document. Use 'resume' or 'cover_letter'.")
+    if fmt not in _MIME:
+        raise HTTPException(404, "Unsupported format. Use 'pdf' or 'docx'.")
+
+    application = session.get(Application, app_id)
+    if application is None:
+        raise HTTPException(404, "Application not found")
+
+    text = getattr(application, _DOC_FIELDS[doc])
+    if not text:
+        raise HTTPException(409, f"No {doc.replace('_', ' ')} generated yet.")
+
+    job = session.get(Job, application.job_id)
+    title = f"{doc} - {job.title if job else 'application'}"
+    data = to_pdf(text, title) if fmt == "pdf" else to_docx(text, title)
+    filename = f"{doc}_{app_id}.{fmt}"
+    return Response(
+        content=data,
+        media_type=_MIME[fmt],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/api/applications/{app_id}/send", response_model=ApplicationOut)

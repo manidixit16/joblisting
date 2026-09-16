@@ -148,6 +148,13 @@ async function loadApps(){
         <button class="ok" onclick="approve(${a.id})">Approve</button>
         <button onclick="sendApp(${a.id}, '${esc(j.apply_email||'')}')" ${a.status==='sent'?'disabled':''}>Review-approved? Send</button>
       </div>
+      <div class="actions" style="margin-top:6px">
+        <span class="muted" style="align-self:center">Download:</span>
+        <a href="/api/applications/${a.id}/resume.pdf"><button class="secondary">Resume PDF</button></a>
+        <a href="/api/applications/${a.id}/resume.docx"><button class="secondary">Resume DOCX</button></a>
+        <a href="/api/applications/${a.id}/cover_letter.pdf"><button class="secondary">Cover PDF</button></a>
+        <a href="/api/applications/${a.id}/cover_letter.docx"><button class="secondary">Cover DOCX</button></a>
+      </div>
       <div class="muted">${a.sent_to?('Sent to '+esc(a.sent_to)):''} ${esc((a.notes||'').slice(-120))}</div>`;
     $('apps').appendChild(div);
   }
