@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Job Application Assistant</title>
+<style>
+  :root { --bg:#0f1220; --card:#1a1f36; --muted:#9aa3c0; --fg:#f2f4ff; --accent:#5b8cff; --ok:#2ecc71; --warn:#f1c40f; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 20px; border-bottom:1px solid #262c4a; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+  h1 { font-size:18px; margin:0; }
+  .muted { color:var(--muted); font-size:13px; }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; }
+  .col { flex:1; min-width:300px; }
+  .card { background:var(--card); border:1px solid #262c4a; border-radius:12px; padding:16px; margin-bottom:16px; }
+  input, textarea, select, button { font:inherit; }
+  input, textarea, select { width:100%; background:#0c1020; color:var(--fg); border:1px solid #2c335a; border-radius:8px; padding:8px; margin:4px 0 10px; }
+  textarea { min-height:70px; resize:vertical; }
+  button { cursor:pointer; background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 14px; font-weight:600; }
+  button.secondary { background:#2c335a; }
+  button.ok { background:var(--ok); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .job { border:1px solid #2c335a; border-radius:10px; padding:12px; margin-bottom:10px; }
+  .job h3 { margin:0 0 4px; font-size:15px; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:#2c335a; margin-right:6px; }
+  .badge.src { background:#33406e; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  label { font-size:12px; color:var(--muted); }
+  .status { font-size:12px; padding:2px 8px; border-radius:999px; }
+  .status.generated { background:#3a3a12; color:var(--warn); }
+  .status.approved { background:#12341f; color:var(--ok); }
+  .status.sent { background:#12203a; color:var(--accent); }
+  #toast { position:fixed; bottom:16px; right:16px; background:#222a4d; padding:10px 14px; border-radius:8px; display:none; max-width:360px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>AI Job Application Assistant</h1><div class="muted" id="status-line">loading…</div></div>
+  <nav><button class="secondary" onclick="show('search')">Search</button>
+       <button class="secondary" onclick="show('profile')">Profile</button>
+       <button class="secondary" onclick="show('review')">Review & Apply</button></nav>
+</header>
+<main>
+  <!-- SEARCH -->
+  <section id="search">
+    <div class="card">
+      <h2>Find fresh jobs (last 24h)</h2>
+      <label>Keywords (comma separated)</label>
+      <input id="s-keywords" placeholder="python, backend, data engineer" />
+      <div class="row">
+        <div class="col"><label>Location</label><input id="s-location" placeholder="Remote / New York" /></div>
+        <div class="col"><label>Max age (hours)</label><input id="s-age" type="number" value="24" /></div>
+      </div>
+      <label><input type="checkbox" id="s-remote" style="width:auto" /> Remote only</label>
+      <div class="actions"><button onclick="refresh()">Fetch jobs</button></div>
+      <p class="muted">Sources: Remotive, RemoteOK, Hacker News "Who's hiring", Adzuna (if key set). Applicant counts show when a source provides them (most don't).</p>
+    </div>
+    <div id="jobs"></div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="profile" style="display:none">
+    <div class="card">
+      <h2>Your profile</h2>
+      <p class="muted">Used to tailor every resume and cover letter. Nothing is fabricated beyond what you enter here.</p>
+      <div class="row">
+        <div class="col"><label>Full name</label><input id="p-full_name" /></div>
+        <div class="col"><label>Email</label><input id="p-email" /></div>
+      </div>
+      <div class="row">
+        <div class="col"><label>Phone</label><input id="p-phone" /></div>
+        <div class="col"><label>Location</label><input id="p-location" /></div>
+      </div>
+      <label>Headline</label><input id="p-headline" placeholder="Senior Backend Engineer" />
+      <label>Summary</label><textarea id="p-summary"></textarea>
+      <label>Skills (comma separated)</label><textarea id="p-skills"></textarea>
+      <label>Experience</label><textarea id="p-experience"></textarea>
+      <label>Education</label><textarea id="p-education"></textarea>
+      <label>Links (portfolio / github / linkedin)</label><input id="p-links" />
+      <div class="actions"><button onclick="saveProfile()">Save profile</button></div>
+    </div>
+  </section>
+
+  <!-- REVIEW -->
+  <section id="review" style="display:none">
+    <div class="card"><h2>Review & apply</h2><p class="muted">Every application is drafted for your review. Approve it, then it becomes eligible to send. Nothing goes out automatically.</p></div>
+    <div id="apps"></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',4000); }
+function show(id){ for(const s of ['search','profile','review']) $(s).style.display = s===id?'block':'none'; if(id==='review') loadApps(); if(id==='profile') loadProfile(); }
+async function api(path, opts){ const r=await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts}); if(!r.ok){ const e=await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); } return r.status===204?null:r.json(); }
+
+async function health(){ try{ const h=await api('/api/health'); $('status-line').textContent = `AI: ${h.claude_available?'Claude':'template'} · email ${h.email_dry_run?'DRY-RUN (safe)':'LIVE'} · sources: ${h.sources.join(', ')}`; }catch(e){ $('status-line').textContent='API unreachable'; } }
+
+async function refresh(){
+  const body = JSON.stringify({ keywords:$('s-keywords').value, location:$('s-location').value, remote_only:$('s-remote').checked, max_age_hours:Number($('s-age').value)||24 });
+  toast('Fetching…');
+  try{ const res=await api('/api/refresh',{method:'POST',body}); toast(`Fetched ${res.fetched} fresh jobs (${res.new} new).`); loadJobs(); }catch(e){ toast('Error: '+e.message); }
+}
+async function loadJobs(){
+  const jobs = await api('/api/jobs?max_age_hours='+(Number($('s-age').value)||24));
+  $('jobs').innerHTML = jobs.length? '' : '<div class="card muted">No jobs yet. Run a search above.</div>';
+  for(const j of jobs){
+    const div=document.createElement('div'); div.className='card job';
+    const applied = j.applicants!=null ? `${j.applicants} applied` : 'applicants: N/A';
+    div.innerHTML = `<h3>${esc(j.title)}</h3>
+      <div class="muted">${esc(j.company||'')} ${j.location?'· '+esc(j.location):''} ${j.salary?'· '+esc(j.salary):''}</div>
+      <div style="margin:6px 0"><span class="badge src">${esc(j.source)}</span><span class="badge">${applied}</span>${j.tags?'<span class="badge">'+esc(j.tags.split(',').slice(0,3).join(', '))+'</span>':''}</div>
+      <div class="actions">
+        <a href="${esc(j.url)}" target="_blank" rel="noopener"><button class="secondary">View posting</button></a>
+        <button onclick="gen(${j.id})">Generate application</button>
+      </div>`;
+    $('jobs').appendChild(div);
+  }
+}
+async function gen(jobId){
+  toast('Generating resume & cover letter…');
+  try{ await api(`/api/jobs/${jobId}/generate`,{method:'POST',body:'{}'}); toast('Draft ready — see Review & Apply.'); show('review'); }
+  catch(e){ toast('Error: '+e.message); }
+}
+
+async function loadProfile(){ const p=await api('/api/profile'); for(const k of ['full_name','email','phone','location','headline','summary','skills','experience','education','links']) $('p-'+k).value=p[k]||''; }
+async function saveProfile(){ const body={}; for(const k of ['full_name','email','phone','location','headline','summary','skills','experience','education','links']) body[k]=$('p-'+k).value; try{ await api('/api/profile',{method:'PUT',body:JSON.stringify(body)}); toast('Profile saved.'); }catch(e){ toast('Error: '+e.message); } }
+
+async function loadApps(){
+  const [apps, jobs] = await Promise.all([api('/api/applications'), api('/api/jobs?max_age_hours=720')]);
+  const jobMap={}; for(const j of jobs) jobMap[j.id]=j;
+  $('apps').innerHTML = apps.length? '' : '<div class="card muted">No applications yet. Generate one from the Search tab.</div>';
+  for(const a of apps){
+    const j=jobMap[a.job_id]||{title:'(job #' + a.job_id + ')', company:''};
+    const div=document.createElement('div'); div.className='card';
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${esc(j.title)} <span class="muted">${esc(j.company||'')}</span></h3>
+        <span class="status ${a.status}">${a.status}</span></div>
+      <div class="muted" style="margin:4px 0">Generated by: ${esc(a.generator||'-')}</div>
+      <label>Resume</label><textarea id="res-${a.id}">${esc(a.resume)}</textarea>
+      <label>Cover letter</label><textarea id="cov-${a.id}">${esc(a.cover_letter)}</textarea>
+      <div class="actions">
+        <button class="secondary" onclick="saveApp(${a.id})">Save edits</button>
+        <button class="ok" onclick="approve(${a.id})">Approve</button>
+        <button onclick="sendApp(${a.id}, '${esc(j.apply_email||'')}')" ${a.status==='sent'?'disabled':''}>Review-approved? Send</button>
+      </div>
+      <div class="muted">${a.sent_to?('Sent to '+esc(a.sent_to)):''} ${esc((a.notes||'').slice(-120))}</div>`;
+    $('apps').appendChild(div);
+  }
+}
+async function saveApp(id){ const body={resume:$('res-'+id).value, cover_letter:$('cov-'+id).value}; try{ await api(`/api/applications/${id}`,{method:'PUT',body:JSON.stringify(body)}); toast('Saved.'); }catch(e){ toast('Error: '+e.message); } }
+async function approve(id){ try{ await api(`/api/applications/${id}`,{method:'PUT',body:JSON.stringify({status:'approved'})}); toast('Approved — now eligible to send.'); loadApps(); }catch(e){ toast('Error: '+e.message); } }
+async function sendApp(id, jobEmail){
+  let to = jobEmail;
+  if(!to){ to = prompt('This job has no email on file. Enter recipient email (or cancel to apply on the site):'); if(!to) return; }
+  if(!confirm('Send this application to '+to+'?')) return;
+  try{ const r=await api(`/api/applications/${id}/send`,{method:'POST',body:JSON.stringify({to_email:to})}); toast('Done: '+(r.notes||'sent').split('\\n').pop()); loadApps(); }
+  catch(e){ toast('Error: '+e.message); }
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+health(); loadJobs();
+</script>
+</body>
+</html>
